@@ -140,7 +140,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          sha256sum direct-guard* > SHA256SUMS
+          find . -mindepth 2 -type f \( -name 'direct-guard*.ipk' -o -name 'direct-guard*.apk' \) -exec mv -t . {} +
+          sha256sum direct-guard*.ipk direct-guard*.apk > SHA256SUMS
           cat SHA256SUMS
-          gh release create "$GITHUB_REF_NAME" direct-guard* SHA256SUMS \
-            --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+          gh release create "$GITHUB_REF_NAME" direct-guard*.ipk direct-guard*.apk SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
