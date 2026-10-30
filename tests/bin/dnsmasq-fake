@@ -1,0 +1,19 @@
+#!/bin/sh
+# dnsmasq stand-in: reports DG_TEST_DNSMASQ_FEATURES as compile time options
+# and answers --test according to DG_TEST_DNSMASQ_TEST (ok or fail).
+
+case "${1:-}" in
+--version)
+	echo "Dnsmasq version 2.90  Copyright (c) 2000-2024 Simon Kelley"
+	echo "Compile time options: IPv6 GNU-getopt ${DG_TEST_DNSMASQ_FEATURES:-no-ipset no-nftset} DNSSEC"
+	;;
+--test)
+	if [ "${DG_TEST_DNSMASQ_TEST:-ok}" = ok ]; then
+		echo "dnsmasq: syntax check OK." >&2
+		exit 0
+	fi
+	echo "dnsmasq: bad option at line 3 of ${3:-?}" >&2
+	exit 1
+	;;
+*) exit 1 ;;
+esac

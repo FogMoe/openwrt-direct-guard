@@ -1,0 +1,30 @@
+#!/bin/sh
+# Minimal uci(1) stand-in: answers "get" and "show" from DG_TEST_UCI_FILE,
+# which holds output in the format of "uci show".
+
+file=${DG_TEST_UCI_FILE:?DG_TEST_UCI_FILE is not set}
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+	-*) shift ;;
+	*) break ;;
+	esac
+done
+
+case "${1:-}" in
+get)
+	awk -v k="${2:-}" '
+		index($0, k "=") == 1 {
+			v = substr($0, length(k) + 2)
+			gsub(/\047/, "", v)
+			print v
+			found = 1
+		}
+		END { exit !found }
+	' "$file"
+	;;
+show)
+	awk -v k="${2:-}" 'index($0, k ".") == 1 || index($0, k "=") == 1' "$file"
+	;;
+set | delete | commit | batch) exit 0 ;;
+*) exit 1 ;;
+esac

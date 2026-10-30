@@ -1,0 +1,146 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Lint and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            shellcheck shfmt dash busybox nftables ipset iptables dnsmasq-base iproute2 iputils-ping
+
+      - name: Lint and unit tests
+        run: bash scripts/test.sh
+
+      - name: Integration tests (nftables)
+        run: sudo bash tests/integration.sh nft
+
+      - name: Integration tests (iptables)
+        run: sudo bash tests/integration.sh iptables
+
+      - name: Integration tests under BusyBox ash
+        run: |
+          sudo DG_TEST_SHELL="busybox sh" bash tests/integration.sh nft
+          sudo DG_TEST_SHELL="busybox sh" bash tests/integration.sh iptables
+
+  openwrt:
+    name: OpenWrt ${{ matrix.release }} (${{ matrix.dnsmasq }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        release:
+          - 24.10.8
+          - 25.12.6
+        dnsmasq:
+          - dnsmasq
+          - dnsmasq-full
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run tests in the OpenWrt rootfs
+        env:
+          RELEASE: ${{ matrix.release }}
+          DNSMASQ_FULL: ${{ matrix.dnsmasq == 'dnsmasq-full' && '1' || '0' }}
+        run: |
+          docker run --rm --cap-add NET_ADMIN -e DG_TEST_DNSMASQ_FULL="$DNSMASQ_FULL" \
+            -v "$PWD:/src:ro" "openwrt/rootfs:x86_64-$RELEASE" /bin/sh /src/tests/openwrt.sh /src
+
+  build:
+    name: Build (${{ matrix.sdk }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk:
+          - x86_64-24.10.8
+          - x86_64-25.12.6
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build package
+        uses: openwrt/gh-action-sdk@7fc2640243284ecc44f4a9c3f749a61746ee02cb # v11
+        env:
+          ARCH: ${{ matrix.sdk }}
+          PACKAGES: direct-guard
+          NO_DEFAULT_FEEDS: 1
+
+      - name: Upload package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: direct-guard-${{ matrix.sdk }}
+          path: bin/packages/*/action/direct-guard*
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - test
+      - openwrt
+      - build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check that the tag matches the package version
+        run: |
+          version="v$(sed -n 's/^PKG_VERSION:=//p' direct-guard/Makefile)"
+          test "$version" = "$GITHUB_REF_NAME" || {
+            echo "tag $GITHUB_REF_NAME does not match PKG_VERSION $version" >&2
+            exit 1
+          }
+
+      - name: Download packages
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          pattern: direct-guard-*
+          merge-multiple: true
+
+      - name: Create release
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha256sum direct-guard* > SHA256SUMS
+          cat SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" direct-guard* SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes

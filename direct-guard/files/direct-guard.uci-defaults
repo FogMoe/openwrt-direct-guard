@@ -1,0 +1,16 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+
+uci -q get firewall.direct_guard >/dev/null && exit 0
+
+uci -q batch <<EOF
+set firewall.direct_guard=include
+set firewall.direct_guard.type='script'
+set firewall.direct_guard.path='/usr/share/direct-guard/firewall.include'
+EOF
+if [ ! -x /sbin/fw4 ] && [ -x /sbin/fw3 ]; then
+	uci -q set firewall.direct_guard.reload='1'
+fi
+uci commit firewall
+
+exit 0

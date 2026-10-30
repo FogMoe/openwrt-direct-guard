@@ -1,0 +1,6 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+
+[ -x /usr/sbin/direct-guard ] || exit 0
+DG_NO_DNSMASQ_RESTART=1 /usr/sbin/direct-guard apply
+exit 0
